@@ -12,6 +12,7 @@
 ## Production ready
 
 - make sure evrything is set up for mounting (custom mount point created,)
+- add a proper logging mechanisme, at least specify commandline verbosity, maybe write to its own logfile in stead of stdout
 
 
 ## Long term
