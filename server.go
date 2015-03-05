@@ -25,28 +25,23 @@ type Queue struct {
 	list.List
 }
 
-var pause chan bool
-var threads string
+var (
+	pause, exit chan bool
+	threads     string
+)
 
 func main() {
 	// init
 	threads = "2"
 	// Setup signal handeling
-	exit := make(chan bool, 1)
+	exit = make(chan bool, 1)
 	pause = make(chan bool, 1)
 	signalChan := make(chan os.Signal, 2)
 	signal.Notify(signalChan, os.Interrupt)
 	go func() {
 		for {
 			<-signalChan
-			select {
-			case exit <- true:
-				fmt.Println("shutting down gracefully, waiting for currently converted file to finish")
-				continue
-			default: // already send 1 interupt for graceful shutdown, (so exit chan will block)force it a second time
-				fmt.Println("shutting down forcefully, after receiving seonnd interrupt signal")
-				os.Exit(0)
-			}
+			handle_exit()
 		}
 	}()
 
@@ -67,6 +62,16 @@ func main() {
 			log.Print("error on accepting connection: ", err)
 		}
 		go handle_conn(conn, q)
+	}
+}
+
+func handle_exit() {
+	select {
+	case exit <- true:
+		fmt.Println("shutting down gracefully, waiting for currently converted file to finish")
+	default: // already send 1 interupt for graceful shutdown, (so exit chan will block)force it a second time
+		fmt.Println("shutting down forcefully, after receiving second request")
+		os.Exit(0)
 	}
 }
 
@@ -94,6 +99,8 @@ func handle_conn(c net.Conn, q *Queue) {
 			fmt.Println("[+] got resume message from client")
 			c.Write([]byte("received resume command\n"))
 			pause <- false
+		case command[0] == "stop":
+			handle_exit()
 		case command[0] == "threads":
 			if _, err := strconv.ParseInt(command[1], 10, 32); err == nil {
 				threads = command[1]
