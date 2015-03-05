@@ -52,10 +52,10 @@ func main() {
 	// setting up everthing needed for the tcp connection
 	ln, err := net.Listen("tcp", ":1234")
 	if err != nil {
-		log.Fatal("could not liston on port 1234:", err)
+		log.Fatal("[*] could not liston on port 1234:", err)
 	}
 	defer ln.Close()
-	fmt.Println("Listening for connections on port 1234")
+	fmt.Println("[-] Listening for connections on port 1234")
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -68,9 +68,9 @@ func main() {
 func handle_exit() {
 	select {
 	case exit <- true:
-		fmt.Println("shutting down gracefully, waiting for currently converted file to finish")
+		fmt.Println("[-] shutting down gracefully, waiting for currently converted file to finish")
 	default: // already send 1 interupt for graceful shutdown, (so exit chan will block)force it a second time
-		fmt.Println("shutting down forcefully, after receiving second request")
+		fmt.Println("[+] shutting down forcefully, after receiving second request")
 		os.Exit(0)
 	}
 }
@@ -107,7 +107,7 @@ func handle_conn(c net.Conn, q *Queue) {
 				fmt.Printf("[+] setting number of threads to %s\n", threads)
 				c.Write([]byte(fmt.Sprintf("setting number of threads to %s\n", threads)))
 			} else {
-				c.Write([]byte("number of threads must be an integer\n"))
+				c.Write([]byte("[*] number of threads must be an integer\n"))
 			}
 		}
 		return
@@ -123,7 +123,7 @@ func handle_conn(c net.Conn, q *Queue) {
 		}
 		if !dup {
 			q.PushBack(f)
-			c.Write([]byte(fmt.Sprintf("received: %s\n", f)))
+			c.Write([]byte(fmt.Sprintf("added to queue: %s\n", f)))
 		} else {
 			c.Write([]byte(fmt.Sprintf("already in queue: %s\n", f)))
 		}
@@ -144,7 +144,7 @@ func compress(q *Queue, exit chan bool) {
 				q.current = filename
 				q.M.Unlock()
 				if _, err := os.Stat(filename); os.IsNotExist(err) {
-					fmt.Println(filename + " does not exist")
+					fmt.Printf("%s does not exist (anymore), skipping\n", filename)
 					continue
 				}
 				isoregex := regexp.MustCompile("(?i:iso|img)$")
@@ -161,13 +161,13 @@ func compress(q *Queue, exit chan bool) {
 					if err != nil {
 						fmt.Println(prefixError("failed to remove "+filename, err))
 					} else {
-						fmt.Println(filename, "[+] compressed and old one deleted")
+						fmt.Printf("[+] %s compressed and old one deleted\n", filename)
 					}
 				}
 			}
 		}
-		time.Sleep(5 * time.Second)
-		fmt.Println("[-] waiting for either input or exit")
+		// if queue is empty, the neverending for loop wil run amok
+		time.Sleep(1 * time.Second)
 	}
 }
 
@@ -237,7 +237,6 @@ func convertIso(filename string) error {
 		"-s", resolution, // set output resolution
 		"-c:a", "copy", // just copy the audio, no de/encoding
 		"-threads", threads, "-y", newfile) // 2 threads to throttle cpu usage, -y to overwrite output file
-	fmt.Println(cmd.Path, cmd.Args)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	err = cmd.Start()
 	if err != nil {
@@ -262,6 +261,7 @@ func convertIso(filename string) error {
 
 func process_wait(cmd *exec.Cmd) error {
 	done := make(chan error)
+	fmt.Println("[-] starting: ", cmd.Path, cmd.Args)
 	go func() {
 		done <- cmd.Wait()
 	}()
@@ -269,7 +269,6 @@ selectloop:
 	for {
 		select {
 		case p := <-pause:
-			fmt.Println("pausing subprocess:", p)
 			if p {
 				cmd.Process.Signal(syscall.SIGSTOP)
 			} else {
@@ -279,7 +278,7 @@ selectloop:
 			if err != nil {
 				return prefixError(cmd.Path+" return code:", err)
 			}
-			fmt.Println("[+] ffmpeg completed without errors")
+			fmt.Println("[+] completed: ", cmd.Path, cmd.Args)
 			break selectloop
 		default:
 			time.Sleep(2 * time.Second)
@@ -293,7 +292,6 @@ func convertVideo(filename string) error {
 	newfile := filepath.Join(filepath.Dir(filename), fmt.Sprintf("%s-compressed.mp4",
 		strings.Replace(filepath.Base(filename), filepath.Ext(filename), "", -1)))
 
-	fmt.Println("[-] compressing", filename)
 	cmd := exec.Command("ffmpeg", "-i", filename,
 		"-sn",                             // disable subtitles
 		"-c:v", "libx264", "-vf", "yadif", // x264 video codec, video filter to deinterlace video
@@ -314,6 +312,5 @@ func convertVideo(filename string) error {
 	if err != nil {
 		return prefixError("chowning: ", err)
 	}
-	fmt.Println("[+] convertVideo returning without errors")
 	return nil
 }

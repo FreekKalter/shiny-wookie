@@ -3,11 +3,6 @@
 ## General
 
 - add README
-- cleanup logging, clear boxed logs
-    [-] starting an operation
-    [+] finished operation
-    [*] error
-    This makes it easy to filter the complete log with `grep grep "\[[-+*]\]" out.log` , to only show our output and ignore ffmpegs output.
 
 ## Production ready
 
