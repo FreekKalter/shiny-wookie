@@ -58,11 +58,11 @@ func main() {
 		log.Fatal("[*] could not liston on port 1234:", err)
 	}
 	defer ln.Close()
-	fmt.Println("[-] Listening for connections on port 1234")
+	log.Println("[-] Listening for connections on port 1234")
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			log.Print("error on accepting connection: ", err)
+			log.Print("[*] error on accepting connection: ", err)
 		}
 		go handle_conn(conn, q)
 	}
@@ -71,9 +71,9 @@ func main() {
 func handle_exit() {
 	select {
 	case exit <- true:
-		fmt.Println("[-] shutting down gracefully, waiting for currently converted file to finish")
+		log.Println("[-] shutting down gracefully, waiting for currently converted file to finish")
 	default: // already send 1 interupt for graceful shutdown, (so exit chan will block)force it a second time
-		fmt.Println("[+] shutting down forcefully, after receiving second request")
+		log.Println("[+] shutting down forcefully, after receiving second request")
 		os.Exit(0)
 	}
 }
@@ -95,11 +95,11 @@ func handle_conn(c net.Conn, q *Queue) {
 				c.Write([]byte(fmt.Sprintf("%s\n", e.Value.(string))))
 			}
 		case command[0] == "pause":
-			fmt.Println("[-] got pause message from client")
+			log.Println("[-] got pause message from client")
 			c.Write([]byte("received pause command\n"))
 			pause <- true
 		case command[0] == "resume":
-			fmt.Println("[+] got resume message from client")
+			log.Println("[+] got resume message from client")
 			c.Write([]byte("received resume command\n"))
 			pause <- false
 		case command[0] == "stop":
@@ -107,7 +107,7 @@ func handle_conn(c net.Conn, q *Queue) {
 		case command[0] == "threads":
 			if _, err := strconv.ParseInt(command[1], 10, 32); err == nil {
 				threads = command[1]
-				fmt.Printf("[+] setting number of threads to %s\n", threads)
+				log.Printf("[+] setting number of threads to %s\n", threads)
 				c.Write([]byte(fmt.Sprintf("setting number of threads to %s\n", threads)))
 			} else {
 				c.Write([]byte("[*] number of threads must be an integer\n"))
@@ -147,7 +147,7 @@ func compress(q *Queue, exit chan bool) {
 				q.current = filename
 				q.M.Unlock()
 				if _, err := os.Stat(filename); os.IsNotExist(err) {
-					fmt.Printf("%s does not exist (anymore), skipping\n", filename)
+					log.Printf("%s does not exist (anymore), skipping\n", filename)
 					continue
 				}
 				isoregex := regexp.MustCompile("(?i:iso|img)$")
@@ -164,7 +164,7 @@ func compress(q *Queue, exit chan bool) {
 					if err != nil {
 						fmt.Println(prefixError("failed to remove "+filename, err))
 					} else {
-						fmt.Printf("[+] %s compressed and old one deleted\n", filename)
+						log.Printf("[+] %s compressed and old one deleted\n", filename)
 					}
 				}
 			}
@@ -264,7 +264,7 @@ func convertIso(filename string) error {
 
 func process_wait(cmd *exec.Cmd) error {
 	done := make(chan error)
-	fmt.Println("[-] starting: ", cmd.Path, cmd.Args)
+	log.Println("[-] starting: ", cmd.Path, cmd.Args)
 	go func() {
 		done <- cmd.Wait()
 	}()
@@ -281,7 +281,7 @@ selectloop:
 			if err != nil {
 				return prefixError(cmd.Path+" return code:", err)
 			}
-			fmt.Println("[+] completed: ", cmd.Path, cmd.Args)
+			log.Println("[+] completed: ", cmd.Path, cmd.Args)
 			break selectloop
 		default:
 			time.Sleep(2 * time.Second)
