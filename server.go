@@ -26,13 +26,14 @@ type Queue struct {
 }
 
 var (
-	pause, exit chan bool
-	threads     string
+	pause, exit  chan bool
+	threads, dir string
 )
 
-func main() {
+func init() {
 	// init
 	threads = "2"
+	dir = ""
 	// Setup signal handeling
 	exit = make(chan bool, 1)
 	pause = make(chan bool, 1)
@@ -44,7 +45,9 @@ func main() {
 			handle_exit()
 		}
 	}()
+}
 
+func main() {
 	// start goroutine handeling emptying the queue
 	q := &Queue{}
 	go compress(q, exit)
@@ -289,7 +292,13 @@ selectloop:
 
 func convertVideo(filename string) error {
 	resolution := findBestResolution(filename)
-	newfile := filepath.Join(filepath.Dir(filename), fmt.Sprintf("%s-compressed.mp4",
+	var newfile string
+	if dir == "" {
+		filepath.Dir(filename)
+	} else {
+		newfile = dir
+	}
+	newfile = filepath.Join(newfile, fmt.Sprintf("%s-compressed.mp4",
 		strings.Replace(filepath.Base(filename), filepath.Ext(filename), "", -1)))
 
 	cmd := exec.Command("ffmpeg", "-i", filename,
