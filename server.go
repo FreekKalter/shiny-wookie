@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net"
@@ -152,19 +153,30 @@ func compress(q *Queue, exit chan bool) {
 				}
 				isoregex := regexp.MustCompile("(?i:iso|img)$")
 				var err error
+				var newfile string
 				if isoregex.MatchString(filename) {
-					err = convertIso(filename)
+					newfile, err = convertIso(filename)
 				} else {
-					err = convertVideo(filename)
+					newfile, err = convertVideo(filename)
 				}
 				if err != nil {
 					fmt.Println(err)
-				} else {
-					err := os.Remove(filename)
-					if err != nil {
-						fmt.Println(prefixError("failed to remove "+filename, err))
+					continue
+				}
+				err = os.Remove(filename)
+				if err != nil {
+					fmt.Println(prefixError("failed to remove "+filename, err))
+					continue
+				}
+				log.Printf("[+] %s compressed and old one deleted\n", filename)
+				// if using a tempdir for compressed file, move it back to location of source file
+				if dir != "" {
+					dest := filepath.Join(filepath.Dir(filename), filepath.Base(newfile))
+					log.Printf("[-] copying %s -> %s", filename, dest)
+					if _, err := Copy(newfile, dest); err != nil {
+						log.Println(prefixError("copying to final destination", err))
 					} else {
-						log.Printf("[+] %s compressed and old one deleted\n", filename)
+						log.Println("[+] copy completed")
 					}
 				}
 			}
@@ -172,6 +184,31 @@ func compress(q *Queue, exit chan bool) {
 		// if queue is empty, the neverending for loop wil run amok
 		time.Sleep(1 * time.Second)
 	}
+}
+
+func Copy(src, dst string) (bytes int64, err error) {
+	src_file, err := os.Open(src)
+	if err != nil {
+		return
+	}
+	defer src_file.Close()
+
+	src_file_stat, err := src_file.Stat()
+	if err != nil {
+		return
+	}
+
+	if !src_file_stat.Mode().IsRegular() {
+		err = fmt.Errorf("%s is not a regular file", src)
+		return
+	}
+
+	dst_file, err := os.Create(dst)
+	if err != nil {
+		return
+	}
+	defer dst_file.Close()
+	return io.Copy(dst_file, src_file)
 }
 
 func prefixError(prefix string, err error) error {
@@ -194,21 +231,23 @@ func findBestResolution(filename string) string {
 	return res
 }
 
-func convertIso(filename string) error {
+func convertIso(filename string) (newfile string, err error) {
 	mountPoint := "/media/film"
 	cmd := exec.Command("sudo", "umount", mountPoint)
-	err := cmd.Run()
+	err = cmd.Run()
 	cmd = exec.Command("sudo", "mount", filename, mountPoint)
 	err = cmd.Run()
 	if err != nil {
-		return prefixError("error mounting %s: %s", err)
+		err = prefixError("error mounting %s: %s", err)
+		return
 	}
 
 	var input, resolution string
 	if _, err := os.Stat(filepath.Join(mountPoint, "VIDEO_TS")); !os.IsNotExist(err) {
 		vobs, err := filepath.Glob(filepath.Join(mountPoint, "VIDEO_TS", "VTS_01_[1-9].VOB"))
 		if err != nil {
-			return prefixError("globbing:", err)
+			err = prefixError("globbing:", err)
+			return newfile, err
 		}
 		input = "concat:"
 		for i, f := range vobs {
@@ -232,7 +271,7 @@ func convertIso(filename string) error {
 		}
 		resolution = findBestResolution(input)
 	}
-	newfile := filepath.Join(filepath.Dir(filename), "compressed.mp4")
+	newfile = filepath.Join(filepath.Dir(filename), "compressed.mp4")
 	cmd = exec.Command("ffmpeg", "-i", input,
 		"-sn",                             // disable subtitles
 		"-c:v", "libx264", "-vf", "yadif", // x264 video codec, video filter to deinterlace video
@@ -243,23 +282,26 @@ func convertIso(filename string) error {
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	err = cmd.Start()
 	if err != nil {
-		return prefixError("compressing: ", err)
+		err = prefixError("compressing: ", err)
+		return
 	}
 	err = process_wait(cmd)
 	if err != nil {
-		return err
+		return
 	}
 
 	cmd = exec.Command("sudo", "umount", "/media/film")
 	err = cmd.Run()
 	if err != nil {
-		return prefixError("unmounting: ", err)
+		err = prefixError("unmounting: ", err)
+		return
 	}
 	err = os.Chown(newfile, 1000, 1000) // uid of fkalter
 	if err != nil {
-		return prefixError("chowning: ", err)
+		err = prefixError("chowning: ", err)
+		return
 	}
-	return nil
+	return
 }
 
 func process_wait(cmd *exec.Cmd) error {
@@ -290,11 +332,10 @@ selectloop:
 	return nil
 }
 
-func convertVideo(filename string) error {
+func convertVideo(filename string) (newfile string, err error) {
 	resolution := findBestResolution(filename)
-	var newfile string
 	if dir == "" {
-		filepath.Dir(filename)
+		newfile = filepath.Dir(filename)
 	} else {
 		newfile = dir
 	}
@@ -309,17 +350,18 @@ func convertVideo(filename string) error {
 		"-c:a", "copy", // just copy the audio, no de/encoding
 		"-threads", threads, "-y", newfile) // 2 threads to throttle cpu usage, -y to overwrite output file
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	err := cmd.Start()
+	err = cmd.Start()
 	if err != nil {
-		return prefixError("compressing: ", err)
+		err = prefixError("compressing: ", err)
+		return
 	}
 	err = process_wait(cmd)
 	if err != nil {
-		return err
+		return
 	}
 	err = os.Chown(newfile, 1000, 1000) // uid of fkalter
 	if err != nil {
-		return prefixError("chowning: ", err)
+		err = prefixError("chowning: ", err)
 	}
-	return nil
+	return
 }
