@@ -3,6 +3,7 @@ package main
 import (
 	"container/list"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -32,9 +33,16 @@ var (
 )
 
 func init() {
-	// init
-	threads = "2"
-	dir = ""
+	// flags
+	threadsInt := flag.Int("threads", 2, "number of threads (between 1 and 10), used to throttle cpu usage")
+	flag.StringVar(&dir, "tmpdir", "", "use this as a temporary directory for the converted file, in case the is nog diskspace left on the original files drive")
+	flag.Parse()
+
+	if *threadsInt < 1 || *threadsInt > 10 {
+		log.Fatal("number of threads must be between 1 and 10")
+	}
+	threads = strconv.FormatInt(int64(*threadsInt), 10)
+
 	// Setup signal handeling
 	exit = make(chan bool, 1)
 	pause = make(chan bool, 1)
@@ -172,12 +180,18 @@ func compress(q *Queue, exit chan bool) {
 				// if using a tempdir for compressed file, move it back to location of source file
 				if dir != "" {
 					dest := filepath.Join(filepath.Dir(filename), filepath.Base(newfile))
-					log.Printf("[-] copying %s -> %s", filename, dest)
+					log.Printf("[-] copying %s -> %s", newfile, dest)
 					if _, err := Copy(newfile, dest); err != nil {
 						log.Println(prefixError("copying to final destination", err))
 					} else {
 						log.Println("[+] copy completed")
+						newfile = dest
 					}
+				}
+				err = os.Chown(newfile, 1000, 1000) // uid of fkalter
+				if err != nil {
+					err = prefixError("chowning: ", err)
+					return
 				}
 			}
 		}
@@ -244,7 +258,7 @@ func convertIso(filename string) (newfile string, err error) {
 
 	var input, resolution string
 	if _, err := os.Stat(filepath.Join(mountPoint, "VIDEO_TS")); !os.IsNotExist(err) {
-		vobs, err := filepath.Glob(filepath.Join(mountPoint, "VIDEO_TS", "VTS_01_[1-9].VOB"))
+		vobs, err := findMainMovie(filepath.Join(mountPoint, "VIDEO_TS"))
 		if err != nil {
 			err = prefixError("globbing:", err)
 			return newfile, err
@@ -257,7 +271,7 @@ func convertIso(filename string) (newfile string, err error) {
 				input = fmt.Sprintf("%s%s|", input, f)
 			}
 		}
-		resolution = findBestResolution("/media/film/VIDEO_TS/VTS_01_1.VOB")
+		resolution = findBestResolution(vobs[0])
 	} else if _, err := os.Stat(filepath.Join(mountPoint, "BDMW")); !os.IsNotExist(err) {
 		media, _ := filepath.Glob(filepath.Join(mountPoint, "BDWM", "*"))
 		var size int64
@@ -271,7 +285,12 @@ func convertIso(filename string) (newfile string, err error) {
 		}
 		resolution = findBestResolution(input)
 	}
-	newfile = filepath.Join(filepath.Dir(filename), "compressed.mp4")
+	if dir == "" {
+		newfile = filepath.Dir(filename)
+	} else {
+		newfile = dir
+	}
+	newfile = filepath.Join(newfile, "compressed.mp4")
 	cmd = exec.Command("ffmpeg", "-i", input,
 		"-sn",                             // disable subtitles
 		"-c:v", "libx264", "-vf", "yadif", // x264 video codec, video filter to deinterlace video
@@ -296,10 +315,43 @@ func convertIso(filename string) (newfile string, err error) {
 		err = prefixError("unmounting: ", err)
 		return
 	}
-	err = os.Chown(newfile, 1000, 1000) // uid of fkalter
-	if err != nil {
-		err = prefixError("chowning: ", err)
-		return
+	return
+}
+
+func findMainMovie(videoTs string) (vobs []string, err error) {
+	// build map of major vts numbers -> total size of these files
+	// the major number with the biggest combined size is probably the main movie
+	files, _ := filepath.Glob(filepath.Join(videoTs, "*.VOB"))
+	sizeMap := make(map[string]int64)
+	majorRegex := regexp.MustCompile("VTS_([0-9]+)_[0-9]+.VOB")
+	for _, f := range files {
+		if !majorRegex.MatchString(f) {
+			continue
+		}
+		major := majorRegex.FindStringSubmatch(f)[1]
+		stat, err := os.Stat(f)
+		if err != nil {
+			return vobs, err
+		}
+		sizeMap[major] = sizeMap[major] + stat.Size()
+	}
+
+	// determine the biggest major from the map
+	var max int64
+	var major string
+	for m, s := range sizeMap {
+		if s > max {
+			max, major = s, m
+		}
+	}
+
+	vobs = make([]string, 0)
+	// return every vob file with the found major number and a minor number bigger than 0
+	mainMovieRegex := regexp.MustCompile(fmt.Sprintf("VTS_%s_([0-9]{2}|[1-9]).VOB", major))
+	for _, v := range files {
+		if mainMovieRegex.MatchString(v) {
+			vobs = append(vobs, v)
+		}
 	}
 	return
 }
@@ -358,10 +410,6 @@ func convertVideo(filename string) (newfile string, err error) {
 	err = process_wait(cmd)
 	if err != nil {
 		return
-	}
-	err = os.Chown(newfile, 1000, 1000) // uid of fkalter
-	if err != nil {
-		err = prefixError("chowning: ", err)
 	}
 	return
 }
