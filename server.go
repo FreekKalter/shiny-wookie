@@ -183,10 +183,15 @@ func compress(q *Queue, exit chan bool) {
 					log.Printf("[-] copying %s -> %s", newfile, dest)
 					if _, err := Copy(newfile, dest); err != nil {
 						log.Println(prefixError("copying to final destination", err))
-					} else {
-						log.Println("[+] copy completed")
-						newfile = dest
+						continue
 					}
+					log.Println("[+] copy completed")
+					err = os.Remove(newfile)
+					if err != nil {
+						log.Println(prefixError("removing tmp file", err))
+						continue
+					}
+					newfile = dest
 				}
 				err = os.Chown(newfile, 1000, 1000) // uid of fkalter
 				if err != nil {
@@ -284,6 +289,8 @@ func convertIso(filename string) (newfile string, err error) {
 			}
 		}
 		resolution = findBestResolution(input)
+	} else {
+		return "", errors.New("unknown image format")
 	}
 	if dir == "" {
 		newfile = filepath.Dir(filename)
