@@ -155,15 +155,18 @@ func compress(q *Queue, exit chan bool) {
 				filename := item.(string)
 				q.current = filename
 				q.M.Unlock()
-				if _, err := os.Stat(filename); os.IsNotExist(err) {
+				var stat os.FileInfo
+				var err error
+				if stat, err = os.Stat(filename); os.IsNotExist(err) {
 					log.Printf("%s does not exist (anymore), skipping\n", filename)
 					continue
 				}
 				isoregex := regexp.MustCompile("(?i:iso|img)$")
-				var err error
 				var newfile string
 				if isoregex.MatchString(filename) {
 					newfile, err = convertIso(filename)
+				} else if stat.IsDir() {
+					newfile, err = handleDVDFolder(filename)
 				} else {
 					newfile, err = convertVideo(filename)
 				}
@@ -171,7 +174,7 @@ func compress(q *Queue, exit chan bool) {
 					fmt.Println(err)
 					continue
 				}
-				err = os.Remove(filename)
+				err = os.RemoveAll(filename)
 				if err != nil {
 					fmt.Println(prefixError("failed to remove "+filename, err))
 					continue
@@ -203,6 +206,55 @@ func compress(q *Queue, exit chan bool) {
 		// if queue is empty, the neverending for loop wil run amok
 		time.Sleep(1 * time.Second)
 	}
+}
+
+func handleDVDFolder(filename string) (newfile string, err error) {
+	input, err := getVideoTSInput(filename)
+	if err != nil {
+		return newfile, err
+	}
+	if dir == "" {
+		newfile = filepath.Dir(filename)
+	} else {
+		newfile = dir
+	}
+	resolution := "720x480"
+	newfile = filepath.Join(newfile, "compressed.mp4")
+	cmd := exec.Command("ffmpeg", "-i", input,
+		"-sn",                             // disable subtitles
+		"-c:v", "libx264", "-vf", "yadif", // x264 video codec, video filter to deinterlace video
+		"-crf", "27", // constant rate factor, compromise between quality and size
+		"-s", resolution, // set output resolution
+		"-c:a", "copy", // just copy the audio, no de/encoding
+		"-threads", threads, "-y", newfile) // 2 threads to throttle cpu usage, -y to overwrite output file
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	err = cmd.Start()
+	if err != nil {
+		err = prefixError("compressing: ", err)
+		return
+	}
+	err = process_wait(cmd)
+	if err != nil {
+		return
+	}
+	return newfile, nil
+}
+
+func getVideoTSInput(filename string) (newfile string, err error) {
+	vobs, err := findMainMovie(filename)
+	if err != nil {
+		err = prefixError("globbing:", err)
+		return newfile, err
+	}
+	newfile = "concat:"
+	for i, f := range vobs {
+		if i == len(vobs)-1 {
+			newfile = fmt.Sprintf("%s%s", newfile, f)
+		} else {
+			newfile = fmt.Sprintf("%s%s|", newfile, f)
+		}
+	}
+	return
 }
 
 func Copy(src, dst string) (bytes int64, err error) {
