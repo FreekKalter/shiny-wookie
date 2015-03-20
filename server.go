@@ -121,24 +121,24 @@ func handle_conn(c net.Conn, q *Queue) {
 			} else {
 				c.Write([]byte("[*] number of threads must be an integer\n"))
 			}
+		case command[0] == "clear":
+			for q.Len() > 0 {
+				q.Remove(q.Front())
+			}
 		}
 		return
 	}
 	q.M.Lock()
+files:
 	for _, f := range filenames {
-		dup := false
 		for e := q.Front(); e != nil; e = e.Next() {
 			if e.Value == f || f == q.current {
-				dup = true
-				break
+				c.Write([]byte(fmt.Sprintf("already in queue: %s\n", f)))
+				continue files
 			}
 		}
-		if !dup {
-			q.PushBack(f)
-			c.Write([]byte(fmt.Sprintf("added to queue: %s\n", f)))
-		} else {
-			c.Write([]byte(fmt.Sprintf("already in queue: %s\n", f)))
-		}
+		q.PushBack(f)
+		c.Write([]byte(fmt.Sprintf("added to queue: %s\n", f)))
 	}
 	q.M.Unlock()
 }
