@@ -21,6 +21,7 @@ import (
 	"time"
 )
 
+// Queue of to be converted filenames with a mutex for async access
 type Queue struct {
 	current string
 	M       sync.Mutex
@@ -51,7 +52,7 @@ func init() {
 	go func() {
 		for {
 			<-signalChan
-			handle_exit()
+			handleExit()
 		}
 	}()
 }
@@ -73,11 +74,11 @@ func main() {
 		if err != nil {
 			log.Print("[*] error on accepting connection: ", err)
 		}
-		go handle_conn(conn, q)
+		go handleConn(conn, q)
 	}
 }
 
-func handle_exit() {
+func handleExit() {
 	select {
 	case exit <- true:
 		log.Println("[-] shutting down gracefully, waiting for currently converted file to finish")
@@ -87,7 +88,7 @@ func handle_exit() {
 	}
 }
 
-func handle_conn(c net.Conn, q *Queue) {
+func handleConn(c net.Conn, q *Queue) {
 	defer c.Close()
 	buff, err := ioutil.ReadAll(c)
 	if err != nil {
@@ -112,7 +113,7 @@ func handle_conn(c net.Conn, q *Queue) {
 			c.Write([]byte("received resume command\n"))
 			pause <- false
 		case command[0] == "stop":
-			handle_exit()
+			handleExit()
 		case command[0] == "threads":
 			if _, err := strconv.ParseInt(command[1], 10, 32); err == nil {
 				threads = command[1]
@@ -184,7 +185,7 @@ func compress(q *Queue, exit chan bool) {
 				if dir != "" {
 					dest := filepath.Join(filepath.Dir(filename), filepath.Base(newfile))
 					log.Printf("[-] copying %s -> %s", newfile, dest)
-					if _, err := Copy(newfile, dest); err != nil {
+					if _, err := copy(newfile, dest); err != nil {
 						log.Println(prefixError("copying to final destination", err))
 						continue
 					}
@@ -233,7 +234,7 @@ func handleDVDFolder(filename string) (newfile string, err error) {
 		err = prefixError("compressing: ", err)
 		return
 	}
-	err = process_wait(cmd)
+	err = processWait(cmd)
 	if err != nil {
 		return
 	}
@@ -257,33 +258,33 @@ func getVideoTSInput(filename string) (newfile string, err error) {
 	return
 }
 
-func Copy(src, dst string) (bytes int64, err error) {
-	src_file, err := os.Open(src)
+func copy(src, dst string) (bytes int64, err error) {
+	srcFile, err := os.Open(src)
 	if err != nil {
 		return
 	}
-	defer src_file.Close()
+	defer srcFile.Close()
 
-	src_file_stat, err := src_file.Stat()
+	srcFileStat, err := srcFile.Stat()
 	if err != nil {
 		return
 	}
 
-	if !src_file_stat.Mode().IsRegular() {
+	if !srcFileStat.Mode().IsRegular() {
 		err = fmt.Errorf("%s is not a regular file", src)
 		return
 	}
 
-	dst_file, err := os.Create(dst)
+	dstFile, err := os.Create(dst)
 	if err != nil {
 		return
 	}
-	defer dst_file.Close()
-	return io.Copy(dst_file, src_file)
+	defer dstFile.Close()
+	return io.Copy(dstFile, srcFile)
 }
 
 func prefixError(prefix string, err error) error {
-	return errors.New(fmt.Sprintf("[*] %s: %s", prefix, err))
+	return fmt.Errorf("[*] %s: %s", prefix, err)
 }
 
 func findBestResolution(filename string) string {
@@ -363,7 +364,7 @@ func convertIso(filename string) (newfile string, err error) {
 		err = prefixError("compressing: ", err)
 		return
 	}
-	err = process_wait(cmd)
+	err = processWait(cmd)
 	if err != nil {
 		return
 	}
@@ -415,7 +416,7 @@ func findMainMovie(videoTs string) (vobs []string, err error) {
 	return
 }
 
-func process_wait(cmd *exec.Cmd) error {
+func processWait(cmd *exec.Cmd) error {
 	done := make(chan error)
 	log.Println("[-] starting: ", cmd.Path, cmd.Args)
 	go func() {
@@ -466,7 +467,7 @@ func convertVideo(filename string) (newfile string, err error) {
 		err = prefixError("compressing: ", err)
 		return
 	}
-	err = process_wait(cmd)
+	err = processWait(cmd)
 	if err != nil {
 		return
 	}
