@@ -454,12 +454,16 @@ func convertVideo(filename string) (newfile string, err error) {
 	newfile = filepath.Join(newfile, fmt.Sprintf("%s-compressed.mp4",
 		strings.Replace(filepath.Base(filename), filepath.Ext(filename), "", -1)))
 
+	audio := "copy"
+	if strings.HasSuffix(filename, "wmv") {
+		audio = "libvorbis"
+	}
 	cmd := exec.Command("ffmpeg", "-i", filename,
 		"-sn",                             // disable subtitles
 		"-c:v", "libx264", "-vf", "yadif", // x264 video codec, video filter to deinterlace video
 		"-crf", "27", // constant rate factor, compromise between quality and size
 		"-s", resolution, // set output resolution
-		"-c:a", "copy", // just copy the audio, no de/encoding
+		"-c:a", audio, // just copy the audio, no de/encoding
 		"-threads", threads, "-y", newfile) // 2 threads to throttle cpu usage, -y to overwrite output file
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	err = cmd.Start()
