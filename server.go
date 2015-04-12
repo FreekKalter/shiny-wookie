@@ -55,6 +55,11 @@ func init() {
 			handleExit()
 		}
 	}()
+	logFile, err := os.OpenFile("/var/log/mass-compress.log", syscall.O_WRONLY|syscall.O_APPEND|syscall.O_CREAT, 0666)
+	if err != nil {
+		log.Fatal("could not open logfile: %s", err.Error())
+	}
+	log.SetOutput(logFile)
 }
 
 func main() {
