@@ -10,7 +10,10 @@ mass-compress: server.go
 
 install: /etc/init/mass-compress.conf /usr/local/bin/mass-compress
 
+uninstall:
+	rm /etc/init/mass-compress.conf /usr/local/bin/mass-compress
+
 clean:
 	rm mass-compress
 
-.PHONY: clean install
+.PHONY: clean install uninstall
