@@ -1,9 +1,11 @@
-gobin = "/home/fkalter/go/bin/go"
+gobin = "/usr/local/go/bin/go"
 mass-compress: server.go
 	$(gobin) build
 
 /usr/local/bin/mass-compress: mass-compress
+	sudo service mass-compress stop
 	cp ./mass-compress /usr/local/bin/
+	sudo service mass-compress start
 
 /etc/init/mass-compress.conf: mass-compress.conf
 	cp ./mass-compress.conf /etc/init/
