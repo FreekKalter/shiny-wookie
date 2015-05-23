@@ -207,6 +207,7 @@ func compress(q *Queue, exit chan bool) {
 					err = prefixError("chowning: ", err)
 					return
 				}
+				q.current = ""
 			}
 		}
 		// if queue is empty, the neverending for loop wil run amok
