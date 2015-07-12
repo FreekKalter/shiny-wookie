@@ -31,6 +31,7 @@ type Queue struct {
 var (
 	pause, exit  chan bool
 	threads, dir string
+	paused       bool
 )
 
 func init() {
@@ -104,28 +105,56 @@ func handleConn(c net.Conn, q *Queue) {
 		stripped := strings.TrimLeft(filenames[0], "--")
 		command := strings.Split(stripped, " ")
 		switch {
+		case command[0] == "tmpdir":
+			if len(command) == 1 {
+				c.Write([]byte(fmt.Sprintf("current temporary directory: %s", dir)))
+			} else {
+				if _, err = os.Stat(command[1]); os.IsNotExist(err) {
+					c.Write([]byte(fmt.Sprintf("[*] directory does not exsist: %s", command[1])))
+				} else {
+					dir = command[1]
+					log.Printf("[+] setting tmpdir to %s", dir)
+					c.Write([]byte(fmt.Sprintf("[+] setting temp directory to: %s", dir)))
+				}
+			}
 		case command[0] == "list":
 			c.Write([]byte(fmt.Sprintf("working on: %s\n", q.current)))
 			for e := q.Front(); e != nil; e = e.Next() {
 				c.Write([]byte(fmt.Sprintf("%s\n", e.Value.(string))))
 			}
+		case command[0] == "play-pause":
+			paused = !paused
+			status := "resuming"
+			if paused {
+				status = "pausing"
+			}
+			message := fmt.Sprintf("[-] got play-pause(%s now) message from client\n", status)
+			log.Print(message)
+			c.Write([]byte(message))
+			pause <- paused
 		case command[0] == "pause":
 			log.Println("[-] got pause message from client")
 			c.Write([]byte("received pause command\n"))
+			paused = true
 			pause <- true
 		case command[0] == "resume":
 			log.Println("[+] got resume message from client")
 			c.Write([]byte("received resume command\n"))
+			paused = false
 			pause <- false
 		case command[0] == "stop":
 			handleExit()
 		case command[0] == "threads":
-			if _, err := strconv.ParseInt(command[1], 10, 32); err == nil {
-				threads = command[1]
-				log.Printf("[+] setting number of threads to %s\n", threads)
-				c.Write([]byte(fmt.Sprintf("setting number of threads to %s\n", threads)))
+			if len(command) == 1 {
+				c.Write([]byte(fmt.Sprintf("number of threads being used: %s\n", threads)))
 			} else {
-				c.Write([]byte("[*] number of threads must be an integer\n"))
+				if _, err := strconv.ParseInt(command[1], 10, 32); err == nil {
+					threads = command[1]
+					log.Printf("[+] setting number of threads to %s\n", threads)
+					c.Write([]byte(fmt.Sprintf("setting number of threads to %s\n", threads)))
+				} else {
+					c.Write([]byte("[*] number of threads must be an integer\n"))
+				}
 			}
 		case command[0] == "clear":
 			for q.Len() > 0 {
@@ -178,11 +207,14 @@ func compress(q *Queue, exit chan bool) {
 				}
 				if err != nil {
 					fmt.Println(err)
+					log.Println(err)
 					continue
 				}
 				err = os.RemoveAll(filename)
 				if err != nil {
-					fmt.Println(prefixError("failed to remove "+filename, err))
+					err = prefixError("failed to remove "+filename, err)
+					fmt.Println(err)
+					log.Println(err)
 					continue
 				}
 				log.Printf("[+] %s compressed and old one deleted\n", filename)
