@@ -166,6 +166,11 @@ func handleConn(c net.Conn, q *Queue) {
 	q.M.Lock()
 files:
 	for _, f := range filenames {
+		if _, err := os.Stat(f); os.IsNotExist(err) {
+			log.Printf("%s does not exist (anymore), skipping\n", f)
+			c.Write([]byte(fmt.Sprintf("%s does not exist (anymore), skipping\n", f)))
+			continue files
+		}
 		for e := q.Front(); e != nil; e = e.Next() {
 			if e.Value == f || f == q.current {
 				c.Write([]byte(fmt.Sprintf("already in queue: %s\n", f)))
