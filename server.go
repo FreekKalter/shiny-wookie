@@ -75,6 +75,7 @@ func main() {
 	}
 	defer ln.Close()
 	log.Println("[-] Listening for connections on port 1234")
+	fmt.Println("[-] Listening for connections on port 1234")
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
