@@ -264,7 +264,7 @@ func handleDVDFolder(filename string) (newfile string, err error) {
 		"-c:v", "libx264", "-vf", "yadif", // x264 video codec, video filter to deinterlace video
 		"-crf", "27", // constant rate factor, compromise between quality and size
 		"-s", resolution, // set output resolution
-		"-c:a", "copy", // just copy the audio, no de/encoding
+		"-c:a", "libvorbis", // use open and free vorbis audio codec
 		"-threads", threads, "-y", newfile) // 2 threads to throttle cpu usage, -y to overwrite output file
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	err = cmd.Start()
