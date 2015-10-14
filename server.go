@@ -243,7 +243,7 @@ func compress(q *Queue, exit chan bool) {
 				err = os.Chown(newfile, 1000, 1000) // uid of fkalter
 				if err != nil {
 					err = prefixError("chowning: ", err)
-					return
+					continue
 				}
 				q.current = ""
 			}
